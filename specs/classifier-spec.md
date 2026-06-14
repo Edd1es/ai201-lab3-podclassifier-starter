@@ -91,10 +91,16 @@ the format below:" followed by the output format you chose.
 **What output format should you request from the LLM?**
 
 ```
-[blank — you need to parse the response in classify_episode(). What format
-makes parsing reliable? Think about: a single label on its own line?
-A structured format like "Label: X / Reasoning: Y"? JSON?
-What are the tradeoffs?]
+Request a two-line format: the label on its own line, then the reasoning.
+
+Label: <one of: interview, solo, panel, narrative>
+Reasoning: <one or two sentences>
+
+This is reliable to parse: split the response into lines, find the line that
+starts with "label:" (case-insensitive), and take what follows the colon.
+A bare-label-only format loses the reasoning; full JSON is more brittle because
+the model sometimes wraps it in markdown fences. "Label:/Reasoning:" is the
+sweet spot — structured enough to parse, loose enough that the model complies.
 ```
 
 ---
@@ -102,8 +108,11 @@ What are the tradeoffs?]
 **Edge cases to handle in the prompt:**
 
 ```
-[blank — what if labeled_examples is empty? What if the description is very
-short? How does your prompt handle these?]
+If labeled_examples is empty, the prompt should still be well-formed — drop in
+a placeholder like "(no labeled examples provided)" instead of an empty block,
+so the call doesn't send a malformed prompt. A very short description is fine to
+pass through as-is; the model can still classify it (and the UI already guards
+against an empty description before this function is called).
 ```
 
 ---
@@ -159,9 +168,11 @@ Extract the response text from:
 **Step 3 — Parse the response:**
 
 ```
-[blank — how do you extract the label and reasoning from the LLM's text output?
-What string operations or parsing logic do you need?
-This depends on the output format you chose in build_few_shot_prompt.]
+Split response.choices[0].message.content into lines. For each line, strip
+whitespace, lowercase it, and strip stray markdown chars (* - ` :). Find the
+line starting with "label:", take the text after the colon, and clean it. As a
+fallback, if no "Label:" line is found, scan the whole response for any bare
+VALID_LABELS string. Pull the reasoning from the line starting with "reasoning:".
 ```
 
 ---
@@ -169,8 +180,9 @@ This depends on the output format you chose in build_few_shot_prompt.]
 **Step 4 — Validate the label:**
 
 ```
-[blank — what do you do if the LLM returns a label that isn't in VALID_LABELS?
-What should label be set to?]
+After parsing, check the candidate against VALID_LABELS. If it isn't an exact
+member of that list, set label to "unknown". Never trust the model to constrain
+itself to the four labels — validate in code, even though the prompt asks for it.
 ```
 
 ---
@@ -178,9 +190,10 @@ What should label be set to?]
 **Step 5 — Handle errors gracefully:**
 
 ```
-[blank — what could go wrong? (Network error? Unparseable response?)
-What should the function return if something fails?
-Hint: the evaluation loop runs 20 calls — one bad response shouldn't crash everything.]
+Wrap the whole thing (prompt build, API call, parse) in try/except. On any
+exception — network error, rate limit, unparseable response — return
+{"label": "unknown", "reasoning": f"Error: {e}"} instead of raising. The M3
+evaluation loop makes 20 sequential calls; one failure must not crash the run.
 ```
 
 ---
